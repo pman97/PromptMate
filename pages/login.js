@@ -9,11 +9,7 @@ export default function LoginPage() {
 
   const handleLogin = async (e) => {
     e.preventDefault()
-
-    console.log(
-      'Magic Link redirect to:',
-      `${process.env.NEXT_PUBLIC_SITE_URL}/dashboard`
-    )
+    console.log('Magic Link redirect to:', `${process.env.NEXT_PUBLIC_SITE_URL}/dashboard`)
 
     const { error } = await supabase.auth.signInWithOtp(
       { email },
