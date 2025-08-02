@@ -1,0 +1,25 @@
+{
+  "name": "promptmate-full-starter",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.39.5",
+    "html2pdf.js": "^0.10.3",
+<<<<<<< HEAD
+=======
+    "lucide-react": "^0.526.0",
+>>>>>>> 31a200a34b49d20c84e4b6b610daac24793acab9
+    "next": "^13.5.11",
+    "openai": "^4.27.0",
+    "react": "18.2.0",
+    "react-dom": "18.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "19.1.8",
+    "typescript": "5.8.3"
+  }
+}
