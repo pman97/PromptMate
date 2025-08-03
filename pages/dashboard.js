@@ -112,32 +112,44 @@ export default function Dashboard() {
   }
 
   const saveName = async () => {
-    if (!nameInput || !accessToken) return
-    setSaving(true)
-    try {
-      const res = await fetch('/api/profile', {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ full_name: nameInput }),
-      })
-      const json = await res.json()
-      console.log('DEBUG: PATCH /api/profile response:', json)
-      if (json.profile) {
-        // sofort neu laden, um sicherzugehen
-        await refreshProfile()
-        setEditingName(false)
-      } else {
-        console.error('Fehler beim Speichern des Namens', json)
-      }
-    } catch (err) {
-      console.error('SaveName failed', err)
-    } finally {
-      setSaving(false)
+  if (!nameInput || !accessToken) return
+  setSaving(true)
+  try {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 10000) // 10s timeout
+
+    const res = await fetch('/api/profile', {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ full_name: nameInput }),
+      signal: controller.signal,
+    })
+
+    clearTimeout(timeout)
+
+    const json = await res.json()
+    console.log('DEBUG: PATCH /api/profile response:', json)
+    if (json.profile) {
+      setProfile(json.profile)
+      setNameInput(json.profile.full_name || '')
+      setEditingName(false)
+    } else {
+      console.error('Fehler beim Speichern des Namens', json)
     }
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      console.error('SaveName request timed out')
+    } else {
+      console.error('SaveName failed', err)
+    }
+  } finally {
+    setSaving(false)
   }
+}
+
 
   const submitPrompt = async (e) => {
     e.preventDefault()
