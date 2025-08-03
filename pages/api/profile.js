@@ -1,6 +1,11 @@
 // pages/api/profile.js
 
+console.log(process.env.NEXT_PUBLIC_SUPABASE_URL)
+console.log(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ? '✔' : '✖')
+
 import { createClient } from '@supabase/supabase-js'
+import { supabase, supabaseAdmin } from '../../lib/supabase'
+
 
 // Admin-Client mit Service Role Key (umgeht RLS / macht Upsert zuverlässig)
 const supabaseAdmin = createClient(

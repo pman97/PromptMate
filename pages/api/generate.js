@@ -2,6 +2,8 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { Configuration, OpenAIApi } from 'openai'
+import { supabase, supabaseAdmin } from '../../lib/supabase'
+
 
 // Supabase normaler Client (für Session)
 const supabase = createClient(
