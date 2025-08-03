@@ -17,10 +17,12 @@ export default function Dashboard() {
   const [response, setResponse] = useState(null)
   const [saving, setSaving] = useState(false)
 
-  // Magic-Link Token aus Hash extrahieren und Session setzen
+  // Magic-Link Token aus Hash extrahieren, Session setzen und initial user/profile laden
   useEffect(() => {
-    const initSessionFromUrl = async () => {
+    const init = async () => {
       if (typeof window === 'undefined') return
+
+      // 1. Magic Link aus Hash verarbeiten
       if (window.location.hash.includes('access_token')) {
         const { data, error } = await supabase.auth.getSessionFromUrl({
           storeSession: true,
@@ -28,29 +30,30 @@ export default function Dashboard() {
         if (error) {
           console.error('Fehler beim Verarbeiten des Magic Link:', error)
         } else {
-          // Hash entfernen, damit URL sauber aussieht
+          // Hash aus der URL entfernen
           window.history.replaceState(null, '', window.location.pathname)
         }
       }
-    }
-    initSessionFromUrl()
-  }, [])
 
-  // Nutzer & Profil laden
-  useEffect(() => {
-    ;(async () => {
+      // 2. Session holen
       const {
         data: { session },
+        error: sessionError,
       } = await supabase.auth.getSession()
+      console.log('=== Supabase session on dashboard load ===', session, sessionError)
+
       if (!session) {
         router.replace('/login')
         return
       }
+
       setUser({ id: session.user.id, email: session.user.email })
       if (profile) {
         setNameInput(profile.full_name || '')
       }
-    })()
+    }
+
+    init()
   }, [router, profile])
 
   const handleLogout = async () => {
