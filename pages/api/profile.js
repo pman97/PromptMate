@@ -2,20 +2,20 @@
 
 import { createClient } from '@supabase/supabase-js'
 
-// Client für normale Benutzer-Requests (RLS)
+// Normaler Client (für Lesen/Update via RLS)
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 )
 
-// Admin-Client mit Service Role Key (um Profile zu erstellen, unabhängig von RLS)
+// Admin-Client mit Service Role Key (umgeht RLS, Fallback für Erstellen/Schreiben)
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 )
 
 async function getUserIdFromRequest(req) {
-  // 1. Versuche Session aus Cookies
+  // 1. Session aus Cookies
   const {
     data: { session },
   } = await supabase.auth.getSession()
@@ -29,7 +29,6 @@ async function getUserIdFromRequest(req) {
   const token = authHeader.replace('Bearer ', '').trim()
   if (!token) return null
 
-  // Mit dem Token den User abrufen (ohne Seiteneffekte)
   const {
     data: { user },
     error: userErr,
@@ -49,7 +48,7 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'GET') {
-    // Profil laden (mit normalem Client, RLS greift)
+    // Profil laden (normal, über RLS)
     let { data: profile, error } = await supabase
       .from('profiles')
       .select('full_name, prompt_limit, prompts_used, user_id')
@@ -62,7 +61,7 @@ export default async function handler(req, res) {
     }
 
     if (!profile) {
-      // Profil anlegen mit Admin-Client (umgeht RLS)
+      // Profil erstellen (Admin, um RLS zu umgehen)
       const { data: inserted, error: insertErr } = await supabaseAdmin
         .from('profiles')
         .insert({ user_id: userId })
@@ -84,19 +83,35 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Kein full_name übergeben' })
     }
 
-    // Update: normal über RLS-geschützten Client, damit nur eigener User ändern kann
-    const { data, error: updateErr } = await supabase
+    // Erst versuchen via normalem Client (RLS)
+    let { data: updated, error: updateErr } = await supabase
       .from('profiles')
       .update({ full_name })
       .eq('user_id', userId)
       .maybeSingle()
 
     if (updateErr) {
-      console.error('Fehler beim Aktualisieren des Profils:', updateErr)
-      return res.status(500).json({ error: updateErr.message })
+      console.warn('Update via RLS fehlgeschlagen, versuche Fallback mit Admin:', updateErr)
     }
 
-    return res.status(200).json({ profile: data })
+    if (!updated) {
+      // Fallback: mit Admin-Client upserten (insert or update)
+      const { data: upserted, error: upsertErr } = await supabaseAdmin
+        .from('profiles')
+        .upsert(
+          { user_id: userId, full_name },
+          { onConflict: 'user_id', ignoreDuplicates: false }
+        )
+        .select()
+        .maybeSingle()
+      if (upsertErr) {
+        console.error('Fallback upsert fehlgeschlagen:', upsertErr)
+        return res.status(500).json({ error: upsertErr.message })
+      }
+      updated = upserted
+    }
+
+    return res.status(200).json({ profile: updated })
   }
 
   res.setHeader('Allow', 'GET, PATCH')
