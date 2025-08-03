@@ -1,6 +1,10 @@
 // pages/api/profile.js
 
-import { supabase, supabaseAdmin } from '../../lib/supabase'
+import { supabase } from '../../lib/supabase'
+import { getSupabaseAdmin } from '../../lib/supabase'
+
+const supabaseAdmin = getSupabaseAdmin()
+
 
 async function getUserId(req) {
   // Bearer Token

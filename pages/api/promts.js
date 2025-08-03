@@ -1,6 +1,10 @@
 // pages/api/prompts.js
 
-import { supabase } from "../../lib/supabase";
+import { supabase } from '../../lib/supabase'
+import { getSupabaseAdmin } from '../../lib/supabase'
+
+const supabaseAdmin = getSupabaseAdmin()
+
 
 export default async function handler(req, res) {
   // Nur GET-Anfragen zulassen

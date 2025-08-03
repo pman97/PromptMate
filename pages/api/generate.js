@@ -1,7 +1,11 @@
 // pages/api/generate.js
 
 import { Configuration, OpenAIApi } from 'openai'
-import { supabase, supabaseAdmin } from '../../lib/supabase'
+import { supabase } from '../../lib/supabase'
+import { getSupabaseAdmin } from '../../lib/supabase'
+
+const supabaseAdmin = getSupabaseAdmin()
+
 
 // OpenAI-Client (falls du echte Antworten willst)
 const configuration = new Configuration({
