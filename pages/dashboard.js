@@ -187,34 +187,40 @@ export default function Dashboard() {
   return (
     <div className="max-w-2xl mx-auto p-4">
       {/* Header / Profil */}
-      <div className="flex justify-between items-center mb-4">
-        <div>
-          <h1 className="text-2xl font-bold">
-            Hallo, {profile?.full_name || user.email}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
+        <div className="flex flex-col">
+          <h1 className="text-3xl font-bold mb-1">
+            Hallo, <span className="text-indigo-600">{profile?.full_name || user.email}</span>
           </h1>
           {!loadingProfile && (
             <p className="text-sm text-gray-500">
-              Verwendet: {profile?.prompts_used ?? 0} / {profile?.prompt_limit}
+              Verwendet: <span className="font-medium">{profile?.prompts_used ?? 0}</span> /{' '}
+              <span className="font-medium">{profile?.prompt_limit}</span>
             </p>
           )}
-          {loadingProfile && <p className="text-sm text-gray-400">Lade Profil…</p>}
+          {loadingProfile && (
+            <div className="flex items-center gap-2">
+              <div className="h-3 w-24 bg-gray-200 rounded animate-pulse" />
+              <span className="text-sm text-gray-400">Lade Profil…</span>
+            </div>
+          )}
           {profileError && (
-            <p className="text-sm text-red-500">Fehler: {profileError}</p>
+            <p className="text-sm text-red-500 mt-1">Fehler: {profileError}</p>
           )}
         </div>
-        <div className="flex gap-2 items-center">
+        <div className="flex flex-wrap gap-2 items-center">
           {editingName ? (
             <>
               <input
                 value={nameInput}
                 onChange={(e) => setNameInput(e.target.value)}
-                className="border p-1 rounded"
+                className="border px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 placeholder="Name"
               />
               <button
                 onClick={saveName}
-                className="px-3 py-1 bg-green-600 text-white rounded"
                 disabled={saving}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg shadow hover:brightness-105 transition"
               >
                 {saving ? 'Speichern...' : 'Speichern'}
               </button>
@@ -223,7 +229,7 @@ export default function Dashboard() {
                   setEditingName(false)
                   setNameInput(profile?.full_name || '')
                 }}
-                className="px-3 py-1 bg-gray-300 rounded"
+                className="px-3 py-2 bg-gray-200 rounded-lg"
               >
                 Abbrechen
               </button>
@@ -231,14 +237,14 @@ export default function Dashboard() {
           ) : (
             <button
               onClick={() => setEditingName(true)}
-              className="text-sm underline"
+              className="text-sm underline text-indigo-600"
             >
               {profile?.full_name ? 'Name bearbeiten' : 'Namen setzen'}
             </button>
           )}
           <button
             onClick={handleLogout}
-            className="px-3 py-1 bg-red-500 text-white rounded"
+            className="px-4 py-2 bg-red-500 text-white rounded-lg shadow hover:brightness-105 transition"
           >
             Logout
           </button>
@@ -249,37 +255,41 @@ export default function Dashboard() {
       <PromptUsageWidget profile={profile} refreshProfile={refreshProfile} />
 
       {/* Prompt-Formular */}
-      <div className="mb-8">
-        <h2 className="text-lg font-semibold mb-2">Neuen Prompt eingeben</h2>
-        {limitReached && (
-          <p className="text-red-600 mb-2">
-            Du hast dein Limit erreicht. Du kannst keine weiteren Prompts senden.
-          </p>
-        )}
-        <form onSubmit={submitPrompt} className="space-y-2">
+      <div className="mb-10 bg-white rounded-2xl shadow-md p-6">
+        <div className="flex justify-between items-center mb-3">
+          <h2 className="text-xl font-semibold">Neuen Prompt eingeben</h2>
+          {limitReached && (
+            <span className="text-sm bg-red-100 text-red-700 px-2 py-1 rounded-full">
+              Limit erreicht
+            </span>
+          )}
+        </div>
+        <form onSubmit={submitPrompt} className="space-y-4">
           <textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             placeholder="Schreibe deinen Prompt hier..."
-            className="w-full border rounded p-2"
-            rows={3}
+            className="w-full border rounded-lg p-3 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-400 min-h-[120px]"
+            rows={4}
             required
             disabled={limitReached || saving}
           />
-          <button
-            type="submit"
-            disabled={saving || limitReached}
-            className="px-4 py-2 bg-blue-600 text-white rounded"
-          >
-            {saving ? 'Sende...' : 'Prompt abschicken'}
-          </button>
-        </form>
-        {response && (
-          <div className="mt-4 p-4 bg-gray-100 rounded">
-            <p className="font-medium">Antwort:</p>
-            <pre className="whitespace-pre-wrap">{response}</pre>
+          <div className="flex flex-col sm:flex-row gap-3 justify-between items-start sm:items-center">
+            <button
+              type="submit"
+              disabled={saving || limitReached}
+              className="flex-1 px-6 py-3 bg-indigo-600 text-white font-medium rounded-lg shadow hover:scale-105 transition"
+            >
+              {saving ? 'Sende...' : 'Prompt abschicken'}
+            </button>
+            {response && (
+              <div className="mt-2 sm:mt-0 p-4 bg-gray-50 rounded-lg flex-1 border">
+                <p className="font-medium mb-1">Antwort:</p>
+                <pre className="whitespace-pre-wrap text-sm">{response}</pre>
+              </div>
+            )}
           </div>
-        )}
+        </form>
       </div>
 
       {/* Gespeicherte Prompts */}
