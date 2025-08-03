@@ -2,153 +2,69 @@
 
 import { createClient } from '@supabase/supabase-js'
 
-// Normaler Client (für Lesen/Update via RLS)
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-)
-
-// Admin-Client mit Service Role Key (umgeht RLS)
+// Nur Admin-Client: upsert & read, um Profil immer zurückzugeben
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 )
 
-async function getUserIdFromRequest(req) {
-  // 1. Session aus Cookies
+// Hilfsfunktion: extrahiere user id aus Authorization Bearer Token oder Cookie-Session
+async function getUserId(req) {
+  // Versuche Bearer Token
+  const authHeader = req.headers.authorization || ''
+  const token = authHeader.replace('Bearer ', '').trim()
+
+  if (token) {
+    const { data: { user }, error } = await supabaseAdmin.auth.getUser(token)
+    if (!error && user) return user.id
+  }
+
+  // Fallback: Session aus Cookie (funktioniert nur wenn Request vom Browser mit Cookie kommt)
   const {
     data: { session },
-  } = await supabase.auth.getSession()
-
-  if (session && session.user) {
+    error: sessionError,
+  } = await supabaseAdmin.auth.getSession()
+  if (!sessionError && session && session.user) {
     return session.user.id
   }
 
-  // 2. Fallback: Bearer Token
-  const authHeader = req.headers.authorization || ''
-  const token = authHeader.replace('Bearer ', '').trim()
-  if (!token) return null
-
-  const {
-    data: { user },
-    error: userErr,
-  } = await supabase.auth.getUser(token)
-
-  if (userErr) {
-    console.error('Fallback getUser failed:', userErr)
-    return null
-  }
-  return user?.id || null
-}
-
-async function fetchExistingProfile(userId) {
-  const { data: profile, error } = await supabase
-    .from('profiles')
-    .select('full_name, prompt_limit, prompts_used, user_id')
-    .eq('user_id', userId)
-    .maybeSingle()
-  if (error) throw error
-  return profile
+  return null
 }
 
 export default async function handler(req, res) {
-  const userId = await getUserIdFromRequest(req)
+  const userId = await getUserId(req)
   if (!userId) {
     return res.status(401).json({ error: 'Nicht eingeloggt' })
   }
 
-  if (req.method === 'GET') {
-    let profile = null
-    try {
-      profile = await fetchExistingProfile(userId)
-    } catch (e) {
-      console.error('Fehler beim Laden des Profils:', e)
-      return res.status(500).json({ error: e.message })
+  // GET und PATCH behandeln fast gleich: wir wollen ein Profil sicherstellen
+  if (req.method === 'GET' || req.method === 'PATCH') {
+    let full_name = undefined
+    if (req.method === 'PATCH') {
+      const body = await new Promise((r) => {
+        let d = ''
+        req.on('data', (chunk) => (d += chunk))
+        req.on('end', () => r(JSON.parse(d)))
+      })
+      full_name = body.full_name
     }
 
-    if (!profile) {
-      // Profil anlegen mit upsert (Admin) und korrekt selecten
-      try {
-        const { data: upserted, error: upsertErr } = await supabaseAdmin
-          .from('profiles')
-          .upsert(
-            { user_id: userId },
-            { onConflict: 'user_id', returning: 'representation' }
-          )
-          .select('full_name, prompt_limit, prompts_used, user_id')
-          .maybeSingle()
-        if (upsertErr) {
-          // Bei Duplicate-Key einfach das bestehende Profil holen
-          if (upsertErr.code === '23505') {
-            profile = await fetchExistingProfile(userId)
-          } else {
-            console.error('Profil upserten fehlgeschlagen (Admin):', upsertErr)
-            return res.status(500).json({ error: upsertErr.message })
-          }
-        } else {
-          profile = upserted
-        }
-      } catch (e) {
-        console.warn('Upsert war problematisch, versuche erneut zu lesen:', e)
-        try {
-          profile = await fetchExistingProfile(userId)
-        } catch (e2) {
-          console.error('Failed to recover profile after upsert failure:', e2)
-          return res.status(500).json({ error: e2.message })
-        }
-      }
+    // Upsert mit optionalem full_name
+    const row = { user_id: userId }
+    if (full_name !== undefined) row.full_name = full_name
+
+    const { data: profile, error } = await supabaseAdmin
+      .from('profiles')
+      .upsert(row, { onConflict: 'user_id', returning: 'representation' })
+      .select('full_name, prompt_limit, prompts_used, user_id')
+      .maybeSingle()
+
+    if (error) {
+      console.error('Profil upsert failed:', error)
+      return res.status(500).json({ error: error.message })
     }
 
     return res.status(200).json({ profile })
-  }
-
-  if (req.method === 'PATCH') {
-    const { full_name } = req.body
-    if (full_name === undefined) {
-      return res.status(400).json({ error: 'Kein full_name übergeben' })
-    }
-
-    // Erst normales Update versuchen (RLS)
-    let updated = null
-    try {
-      const { data, error: updateErr } = await supabase
-        .from('profiles')
-        .update({ full_name })
-        .eq('user_id', userId)
-        .select('full_name, prompt_limit, prompts_used, user_id')
-        .maybeSingle()
-      if (updateErr) {
-        console.warn('Update via RLS fehlgeschlagen, fallback später', updateErr)
-      } else {
-        updated = data
-      }
-    } catch (e) {
-      console.warn('RLS-update exception, fallback:', e)
-    }
-
-    if (!updated) {
-      // Fallback: upsert mit Admin (setzt full_name) und select
-      try {
-        const { data: upserted, error: upsertErr } = await supabaseAdmin
-          .from('profiles')
-          .upsert(
-            { user_id: userId, full_name },
-            { onConflict: 'user_id', returning: 'representation' }
-          )
-          .select('full_name, prompt_limit, prompts_used, user_id')
-          .maybeSingle()
-        if (upsertErr) {
-          console.error('Fallback upsert fehlgeschlagen:', upsertErr)
-          return res.status(500).json({ error: upsertErr.message })
-        }
-        updated = upserted
-      } catch (e) {
-        console.error('Fallback upsert exception:', e)
-        return res.status(500).json({ error: e.message })
-      }
-    }
-
-    return res.status(200).json({ profile: updated })
   }
 
   res.setHeader('Allow', 'GET, PATCH')
