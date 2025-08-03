@@ -9,6 +9,7 @@ import { useProfile } from '../hooks/useProfile'
 export default function Dashboard() {
   const router = useRouter()
   const [user, setUser] = useState(null)
+  const [accessToken, setAccessToken] = useState(null)
   const [editingName, setEditingName] = useState(false)
   const [nameInput, setNameInput] = useState('')
   const { profile, setProfile, loading: loadingProfile, error: profileError } =
@@ -17,7 +18,7 @@ export default function Dashboard() {
   const [response, setResponse] = useState(null)
   const [saving, setSaving] = useState(false)
 
-  // Magic-Link Token aus Hash extrahieren, Session setzen und initial user/profile laden
+  // Session initialisieren (Magic Link Hash verarbeiten) und User/Token setzen
   useEffect(() => {
     const init = async () => {
       if (typeof window === 'undefined') return
@@ -30,24 +31,27 @@ export default function Dashboard() {
         if (error) {
           console.error('Fehler beim Verarbeiten des Magic Link:', error)
         } else {
-          // Hash aus der URL entfernen
+          // Hash bereinigen
           window.history.replaceState(null, '', window.location.pathname)
         }
       }
 
-      // 2. Session holen
+      // 2. Session abrufen
       const {
         data: { session },
         error: sessionError,
       } = await supabase.auth.getSession()
       console.log('=== Supabase session on dashboard load ===', session, sessionError)
 
-      if (!session) {
+      if (!session || !session.user) {
         router.replace('/login')
         return
       }
 
       setUser({ id: session.user.id, email: session.user.email })
+      setAccessToken(session.access_token)
+
+      // Profil-Name vorausfüllen, falls vorhanden
       if (profile) {
         setNameInput(profile.full_name || '')
       }
@@ -62,18 +66,28 @@ export default function Dashboard() {
   }
 
   const saveName = async () => {
-    if (!nameInput) return
-    const res = await fetch('/api/profile', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ full_name: nameInput }),
-    })
-    const json = await res.json()
-    if (json.profile) {
-      setProfile(json.profile)
-      setEditingName(false)
-    } else {
-      console.error('Fehler beim Speichern des Namens', json)
+    if (!nameInput || !accessToken) return
+    setSaving(true)
+    try {
+      const res = await fetch('/api/profile', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ full_name: nameInput }),
+      })
+      const json = await res.json()
+      if (json.profile) {
+        setProfile(json.profile)
+        setEditingName(false)
+      } else {
+        console.error('Fehler beim Speichern des Namens', json)
+      }
+    } catch (err) {
+      console.error('SaveName failed', err)
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -130,8 +144,9 @@ export default function Dashboard() {
               <button
                 onClick={saveName}
                 className="px-3 py-1 bg-green-600 text-white rounded"
+                disabled={saving}
               >
-                Speichern
+                {saving ? 'Speichern...' : 'Speichern'}
               </button>
               <button
                 onClick={() => {

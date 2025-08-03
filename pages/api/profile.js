@@ -7,47 +7,47 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 )
 
-export default async function handler(req, res) {
-  // Session aus Cookie holen
-  let userId = null
+async function getUserIdFromRequest(req) {
+  // 1. Session aus Cookies (falls vorhanden)
   const {
     data: { session },
-    error: sessionError,
   } = await supabase.auth.getSession()
 
   if (session && session.user) {
-    userId = session.user.id
-  } else {
-    // Fallback: Bearer token aus Header nehmen
-    const authHeader = req.headers.authorization || ''
-    const token = authHeader.replace('Bearer ', '').trim()
-    if (token) {
-      const {
-        data: { user },
-        error: userErr,
-      } = await supabase.auth.getUser(token)
-      if (user && user.id) {
-        userId = user.id
-      } else {
-        console.error('Fallback getUser fehlgeschlagen:', userErr)
-      }
-    }
+    return session.user.id
   }
 
+  // 2. Fallback: Bearer Token aus Header
+  const authHeader = req.headers.authorization || ''
+  const token = authHeader.replace('Bearer ', '').trim()
+  if (!token) return null
+
+  const {
+    data: { user },
+    error: userErr,
+  } = await supabase.auth.getUser(token)
+
+  if (userErr) {
+    console.error('Fallback getUser failed:', userErr)
+    return null
+  }
+  return user?.id || null
+}
+
+export default async function handler(req, res) {
+  const userId = await getUserIdFromRequest(req)
   if (!userId) {
     return res.status(401).json({ error: 'Nicht eingeloggt' })
   }
 
   if (req.method === 'GET') {
-    // Profil laden oder anlegen
     let { data: profile, error } = await supabase
       .from('profiles')
-      .select('full_name, prompt_limit, prompts_used')
+      .select('full_name, prompt_limit, prompts_used, user_id')
       .eq('user_id', userId)
       .single()
 
     if ((!profile && error) || !profile) {
-      // Wenn nicht existent, erstellen
       const { data: inserted, error: insertErr } = await supabase
         .from('profiles')
         .insert({ user_id: userId })
