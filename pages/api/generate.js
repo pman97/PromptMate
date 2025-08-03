@@ -1,23 +1,9 @@
 // pages/api/generate.js
 
-import { createClient } from '@supabase/supabase-js'
 import { Configuration, OpenAIApi } from 'openai'
 import { supabase, supabaseAdmin } from '../../lib/supabase'
 
-
-// Supabase normaler Client (für Session)
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-)
-
-// Admin-Client für writes (umgeht RLS)
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-)
-
-// OpenAI-Client (nur, wenn du API nutzt)
+// OpenAI-Client (falls du echte Antworten willst)
 const configuration = new Configuration({
   apiKey: process.env.OPENAI_API_KEY,
 })
@@ -57,7 +43,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    // 1. Profil prüfen (Limit)
+    // Profil prüfen / anlegen
     const { data: profile, error: profileErr } = await supabaseAdmin
       .from('profiles')
       .select('prompt_limit, prompts_used')
@@ -65,14 +51,12 @@ export default async function handler(req, res) {
       .maybeSingle()
     if (profileErr) throw profileErr
     if (!profile) {
-      // Falls noch kein Profil existiert, anlegen
       await supabaseAdmin.from('profiles').upsert(
         { user_id: resolvedUserId },
         { onConflict: 'user_id' }
       )
     }
 
-    // Neu laden
     const { data: freshProfile } = await supabaseAdmin
       .from('profiles')
       .select('prompt_limit, prompts_used')
@@ -85,9 +69,9 @@ export default async function handler(req, res) {
         .json({ error: 'Limit erreicht', response: null, limitReached: true })
     }
 
-    // 2. GPT-4 oder Mock (hier Mock, ersetze wenn du willst)
+    // GPT-Antwort (Mock oder echter Aufruf)
     let text = 'Dies ist eine Testantwort (Mock)'
-    // Wenn du echten OpenAI-Aufruf willst, z.B.:
+    // Echtes GPT-4 Beispiel (auskommentiert, nur wenn API-Key & Zugriff):
     /*
     const completion = await openai.createChatCompletion({
       model: 'gpt-4',
@@ -96,7 +80,7 @@ export default async function handler(req, res) {
     text = completion.data.choices[0].message.content
     */
 
-    // 3. Prompt + Antwort speichern
+    // Prompt + Antwort speichern
     const { error: insertErr } = await supabaseAdmin.from('prompts').insert({
       user_id: resolvedUserId,
       prompt,
@@ -104,12 +88,12 @@ export default async function handler(req, res) {
     })
     if (insertErr) throw insertErr
 
-    // 4. prompts_used atomar erhöhen
+    // prompts_used erhöhen (funktion oder fallback)
     const { error: incErr } = await supabaseAdmin.rpc('increment_prompts_used', {
       p_user_id: resolvedUserId,
     })
     if (incErr) {
-      // Fallback: einfach updaten (race condition möglich, aber okay)
+      // fallback
       await supabaseAdmin
         .from('profiles')
         .update({

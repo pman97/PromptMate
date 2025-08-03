@@ -1,20 +1,9 @@
 // pages/api/profile.js
 
-console.log(process.env.NEXT_PUBLIC_SUPABASE_URL)
-console.log(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ? '✔' : '✖')
-
-import { createClient } from '@supabase/supabase-js'
 import { supabase, supabaseAdmin } from '../../lib/supabase'
 
-
-// Admin-Client mit Service Role Key (umgeht RLS / macht Upsert zuverlässig)
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-)
-
 async function getUserId(req) {
-  // 1. Bearer Token versuchen
+  // Bearer Token
   const authHeader = req.headers.authorization || ''
   const token = authHeader.replace('Bearer ', '').trim()
   if (token) {
@@ -25,7 +14,7 @@ async function getUserId(req) {
     if (!error && user) return user.id
   }
 
-  // 2. Fallback: Session aus Cookie
+  // Session aus Cookie
   const {
     data: { session },
     error: sessionError,
