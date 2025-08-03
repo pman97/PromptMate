@@ -8,7 +8,7 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 )
 
-// Admin-Client mit Service Role Key (umgeht RLS, Fallback für Erstellen/Schreiben)
+// Admin-Client mit Service Role Key (umgeht RLS)
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -24,7 +24,7 @@ async function getUserIdFromRequest(req) {
     return session.user.id
   }
 
-  // 2. Fallback: Bearer Token aus Header
+  // 2. Fallback: Bearer Token
   const authHeader = req.headers.authorization || ''
   const token = authHeader.replace('Bearer ', '').trim()
   if (!token) return null
@@ -48,7 +48,7 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'GET') {
-    // Profil laden (normal, über RLS)
+    // Profil laden (via RLS)
     let { data: profile, error } = await supabase
       .from('profiles')
       .select('full_name, prompt_limit, prompts_used, user_id')
@@ -61,17 +61,19 @@ export default async function handler(req, res) {
     }
 
     if (!profile) {
-      // Profil erstellen (Admin, um RLS zu umgehen)
-      const { data: inserted, error: insertErr } = await supabaseAdmin
+      // Profil anlegen oder holen mit upsert (Admin, um RLS zu umgehen)
+      const { data: upserted, error: upsertErr } = await supabaseAdmin
         .from('profiles')
-        .insert({ user_id: userId })
-        .select()
+        .upsert(
+          { user_id: userId },
+          { onConflict: 'user_id', returning: 'representation' }
+        )
         .maybeSingle()
-      if (insertErr) {
-        console.error('Profil anlegen fehlgeschlagen (Admin):', insertErr)
-        return res.status(500).json({ error: insertErr.message })
+      if (upsertErr) {
+        console.error('Profil anlegen/upserten fehlgeschlagen (Admin):', upsertErr)
+        return res.status(500).json({ error: upsertErr.message })
       }
-      profile = inserted
+      profile = upserted
     }
 
     return res.status(200).json({ profile })
@@ -83,7 +85,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Kein full_name übergeben' })
     }
 
-    // Erst versuchen via normalem Client (RLS)
+    // Erst normales Update versuchen (RLS)
     let { data: updated, error: updateErr } = await supabase
       .from('profiles')
       .update({ full_name })
@@ -95,14 +97,13 @@ export default async function handler(req, res) {
     }
 
     if (!updated) {
-      // Fallback: mit Admin-Client upserten (insert or update)
+      // Fallback: upsert mit Admin (setzt full_name unabhängig davon, ob Profil schon da ist)
       const { data: upserted, error: upsertErr } = await supabaseAdmin
         .from('profiles')
         .upsert(
           { user_id: userId, full_name },
-          { onConflict: 'user_id', ignoreDuplicates: false }
+          { onConflict: 'user_id', returning: 'representation' }
         )
-        .select()
         .maybeSingle()
       if (upsertErr) {
         console.error('Fallback upsert fehlgeschlagen:', upsertErr)
