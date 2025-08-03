@@ -41,6 +41,16 @@ async function getUserIdFromRequest(req) {
   return user?.id || null
 }
 
+async function fetchExistingProfile(userId) {
+  const { data: profile, error } = await supabase
+    .from('profiles')
+    .select('full_name, prompt_limit, prompts_used, user_id')
+    .eq('user_id', userId)
+    .maybeSingle()
+  if (error) throw error
+  return profile
+}
+
 export default async function handler(req, res) {
   const userId = await getUserIdFromRequest(req)
   if (!userId) {
@@ -49,31 +59,45 @@ export default async function handler(req, res) {
 
   if (req.method === 'GET') {
     // Profil laden (via RLS)
-    let { data: profile, error } = await supabase
-      .from('profiles')
-      .select('full_name, prompt_limit, prompts_used, user_id')
-      .eq('user_id', userId)
-      .maybeSingle()
-
-    if (error) {
-      console.error('Fehler beim Laden des Profils:', error)
-      return res.status(500).json({ error: error.message })
+    let profile = null
+    try {
+      profile = await fetchExistingProfile(userId)
+    } catch (e) {
+      console.error('Fehler beim Laden des Profils:', e)
+      return res.status(500).json({ error: e.message })
     }
 
     if (!profile) {
-      // Profil anlegen oder holen mit upsert (Admin, um RLS zu umgehen)
-      const { data: upserted, error: upsertErr } = await supabaseAdmin
-        .from('profiles')
-        .upsert(
-          { user_id: userId },
-          { onConflict: 'user_id', returning: 'representation' }
-        )
-        .maybeSingle()
-      if (upsertErr) {
-        console.error('Profil anlegen/upserten fehlgeschlagen (Admin):', upsertErr)
-        return res.status(500).json({ error: upsertErr.message })
+      // Profil anlegen mit upsert, aber duplicate key abfangen
+      try {
+        const { data: upserted, error: upsertErr } = await supabaseAdmin
+          .from('profiles')
+          .upsert(
+            { user_id: userId },
+            { onConflict: 'user_id', returning: 'representation' }
+          )
+          .maybeSingle()
+        if (upsertErr) {
+          // Wenn es ein Duplicate-Key-Error ist, einfach das bestehende holen
+          if (upsertErr.code === '23505') {
+            profile = await fetchExistingProfile(userId)
+          } else {
+            console.error('Profil upserten fehlgeschlagen (Admin):', upsertErr)
+            return res.status(500).json({ error: upsertErr.message })
+          }
+        } else {
+          profile = upserted
+        }
+      } catch (e) {
+        // Fallback: falls trotzdem conflict oder anderes, nochmal lesen
+        console.warn('Upsert war problematisch, versuche erneut zu lesen:', e)
+        try {
+          profile = await fetchExistingProfile(userId)
+        } catch (e2) {
+          console.error('Failed to recover profile after upsert failure:', e2)
+          return res.status(500).json({ error: e2.message })
+        }
       }
-      profile = upserted
     }
 
     return res.status(200).json({ profile })
@@ -86,30 +110,41 @@ export default async function handler(req, res) {
     }
 
     // Erst normales Update versuchen (RLS)
-    let { data: updated, error: updateErr } = await supabase
-      .from('profiles')
-      .update({ full_name })
-      .eq('user_id', userId)
-      .maybeSingle()
-
-    if (updateErr) {
-      console.warn('Update via RLS fehlgeschlagen, versuche Fallback mit Admin:', updateErr)
+    let updated = null
+    try {
+      const { data, error: updateErr } = await supabase
+        .from('profiles')
+        .update({ full_name })
+        .eq('user_id', userId)
+        .maybeSingle()
+      if (updateErr) {
+        console.warn('Update via RLS fehlgeschlagen, fallback später', updateErr)
+      } else {
+        updated = data
+      }
+    } catch (e) {
+      console.warn('RLS-update exception, fallback:', e)
     }
 
     if (!updated) {
-      // Fallback: upsert mit Admin (setzt full_name unabhängig davon, ob Profil schon da ist)
-      const { data: upserted, error: upsertErr } = await supabaseAdmin
-        .from('profiles')
-        .upsert(
-          { user_id: userId, full_name },
-          { onConflict: 'user_id', returning: 'representation' }
-        )
-        .maybeSingle()
-      if (upsertErr) {
-        console.error('Fallback upsert fehlgeschlagen:', upsertErr)
-        return res.status(500).json({ error: upsertErr.message })
+      // Fallback: upsert mit Admin (setzt full_name)
+      try {
+        const { data: upserted, error: upsertErr } = await supabaseAdmin
+          .from('profiles')
+          .upsert(
+            { user_id: userId, full_name },
+            { onConflict: 'user_id', returning: 'representation' }
+          )
+          .maybeSingle()
+        if (upsertErr) {
+          console.error('Fallback upsert fehlgeschlagen:', upsertErr)
+          return res.status(500).json({ error: upsertErr.message })
+        }
+        updated = upserted
+      } catch (e) {
+        console.error('Fallback upsert exception:', e)
+        return res.status(500).json({ error: e.message })
       }
-      updated = upserted
     }
 
     return res.status(200).json({ profile: updated })
