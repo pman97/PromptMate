@@ -4,32 +4,32 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
 import { supabase } from '../lib/supabase'
 import { PromptList } from '../components/PromptList'
-import { useProfile } from '../hooks/useProfile'
 import { PromptUsageWidget } from '../components/PromptUsageWidget'
 
 export default function Dashboard() {
   const router = useRouter()
   const [user, setUser] = useState(null)
   const [accessToken, setAccessToken] = useState(null)
+  const [profile, setProfile] = useState(null)
   const [editingName, setEditingName] = useState(false)
   const [nameInput, setNameInput] = useState('')
-  const { profile, setProfile, loading: loadingProfile, error: profileError } =
-    useProfile()
   const [prompt, setPrompt] = useState('')
   const [response, setResponse] = useState(null)
   const [saving, setSaving] = useState(false)
+  const [loadingProfile, setLoadingProfile] = useState(true)
+  const [profileError, setProfileError] = useState(null)
 
-  // Session initialisieren (Magic Link Hash verarbeiten) und User/Token setzen
+  // 1. Session / Magic Link verarbeiten und User setzen
   useEffect(() => {
     const init = async () => {
       if (typeof window === 'undefined') return
 
       if (window.location.hash.includes('access_token')) {
-        const { data, error } = await supabase.auth.getSessionFromUrl({
+        const { error } = await supabase.auth.getSessionFromUrl({
           storeSession: true,
         })
         if (error) {
-          console.error('Fehler beim Verarbeiten des Magic Link:', error)
+          console.error('Magic link Verarbeiten Fehler:', error)
         } else {
           window.history.replaceState(null, '', window.location.pathname)
         }
@@ -39,6 +39,7 @@ export default function Dashboard() {
         data: { session },
         error: sessionError,
       } = await supabase.auth.getSession()
+
       console.log('=== Supabase session on dashboard load ===', session, sessionError)
 
       if (!session || !session.user) {
@@ -48,65 +49,92 @@ export default function Dashboard() {
 
       setUser({ id: session.user.id, email: session.user.email })
       setAccessToken(session.access_token)
-
-      if (profile) {
-        setNameInput(profile.full_name || '')
-      }
     }
 
     init()
-  }, [router, profile])
+  }, [router])
 
-  // Debug: show profile updates
+  // 2. Profil laden sobald accessToken verfügbar ist
   useEffect(() => {
-    console.log('DEBUG: aktuelles profile im Dashboard:', profile)
-  }, [profile])
+    const loadProfile = async () => {
+      if (!accessToken) return
+      setLoadingProfile(true)
+      try {
+        const res = await fetch('/api/profile', {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        })
+        const json = await res.json()
+        if (json.profile) {
+          setProfile(json.profile)
+          setNameInput(json.profile.full_name || '')
+        } else if (json.error) {
+          setProfileError(json.error)
+        }
+      } catch (e) {
+        setProfileError(e.message)
+      } finally {
+        setLoadingProfile(false)
+      }
+    }
+
+    loadProfile()
+  }, [accessToken])
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
     router.replace('/login')
   }
 
-  // Profil neu laden
   const refreshProfile = async () => {
+    if (!accessToken) return
+    setLoadingProfile(true)
     try {
-      const res = await fetch('/api/profile')
+      const res = await fetch('/api/profile', {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      })
       const json = await res.json()
       if (json.profile) {
         setProfile(json.profile)
+      } else if (json.error) {
+        setProfileError(json.error)
       }
     } catch (e) {
-      console.error('Profil refresh failed', e)
+      setProfileError(e.message)
+    } finally {
+      setLoadingProfile(false)
     }
   }
 
   const saveName = async () => {
-  if (!nameInput || !accessToken) return
-  setSaving(true)
-  try {
-    const res = await fetch('/api/profile', {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({ full_name: nameInput }),
-    })
-    const json = await res.json()
-    if (json.profile) {
-      setProfile(json.profile)          // sofort neuen Namen setzen
-      setNameInput(json.profile.full_name || '')
-      setEditingName(false)
-    } else {
-      console.error('Fehler beim Speichern des Namens', json)
+    if (!nameInput || !accessToken) return
+    setSaving(true)
+    try {
+      const res = await fetch('/api/profile', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ full_name: nameInput }),
+      })
+      const json = await res.json()
+      if (json.profile) {
+        setProfile(json.profile)
+        setNameInput(json.profile.full_name || '')
+        setEditingName(false)
+      } else {
+        console.error('Fehler beim Speichern des Namens', json)
+      }
+    } catch (err) {
+      console.error('SaveName failed', err)
+    } finally {
+      setSaving(false)
     }
-  } catch (err) {
-    console.error('SaveName failed', err)
-  } finally {
-    setSaving(false)
   }
-}
-
 
   const submitPrompt = async (e) => {
     e.preventDefault()
