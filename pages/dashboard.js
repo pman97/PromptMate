@@ -1,5 +1,10 @@
 // pages/dashboard.js
 
+console.log('Supabase URL (env):', process.env.NEXT_PUBLIC_SUPABASE_URL)
+console.log('Anon key present:', !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
+console.log('Service role present:', !!process.env.SUPABASE_SERVICE_ROLE_KEY)
+
+
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
 import { supabase } from '../lib/supabase'
