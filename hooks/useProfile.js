@@ -1,29 +1,35 @@
 // hooks/useProfile.js
-import { useEffect, useState } from 'react'
+
+import { useState, useEffect } from 'react'
+import { supabase } from '../lib/supabase'
 
 export function useProfile() {
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const res = await fetch('/api/profile')
-        const json = await res.json()
-        if (json.profile) {
-          setProfile(json.profile)
-        } else {
-          setError(json.error || 'Konnte Profil nicht laden')
-        }
-      } catch (e) {
-        setError(e.message)
-      } finally {
-        setLoading(false)
+  const loadProfile = async () => {
+    setLoading(true)
+    try {
+      const res = await fetch('/api/profile')
+      const json = await res.json()
+      if (json.profile) {
+        setProfile(json.profile)
+      } else if (json.error) {
+        setError(json.error)
       }
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
     }
-    load()
+  }
+
+  useEffect(() => {
+    loadProfile()
+    // optional: du könntest hier auch ein Interval setzen für Polling, aber
+    // für jetzt reicht einmal beim Mount.
   }, [])
 
-  return { profile, setProfile, loading, error }
+  return { profile, setProfile, loading, error, refresh: loadProfile }
 }
