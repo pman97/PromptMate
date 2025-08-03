@@ -24,7 +24,6 @@ export default function Dashboard() {
     const init = async () => {
       if (typeof window === 'undefined') return
 
-      // Magic Link aus Hash verarbeiten
       if (window.location.hash.includes('access_token')) {
         const { data, error } = await supabase.auth.getSessionFromUrl({
           storeSession: true,
@@ -36,7 +35,6 @@ export default function Dashboard() {
         }
       }
 
-      // Session holen
       const {
         data: { session },
         error: sessionError,
@@ -59,12 +57,17 @@ export default function Dashboard() {
     init()
   }, [router, profile])
 
+  // Debug: show profile updates
+  useEffect(() => {
+    console.log('DEBUG: aktuelles profile im Dashboard:', profile)
+  }, [profile])
+
   const handleLogout = async () => {
     await supabase.auth.signOut()
     router.replace('/login')
   }
 
-  // Profil neu laden (für Widget / Refresh)
+  // Profil neu laden
   const refreshProfile = async () => {
     try {
       const res = await fetch('/api/profile')
@@ -117,7 +120,6 @@ export default function Dashboard() {
       const data = await res.json()
       setResponse(data.response || 'Keine Antwort erhalten')
       setPrompt('')
-      // nach erfolgreichem Prompt das Profil refreshen, damit usage up-to-date ist
       await refreshProfile()
     } catch (err) {
       console.error('Prompt senden fehlgeschlagen', err)
@@ -133,7 +135,7 @@ export default function Dashboard() {
 
   return (
     <div className="max-w-2xl mx-auto p-4">
-      {/* Kopfzeile / Profil */}
+      {/* Header / Profil */}
       <div className="flex justify-between items-center mb-4">
         <div>
           <h1 className="text-2xl font-bold">
@@ -192,7 +194,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Prompt Usage Widget */}
+      {/* Usage Widget */}
       <PromptUsageWidget profile={profile} refreshProfile={refreshProfile} />
 
       {/* Prompt-Formular */}
