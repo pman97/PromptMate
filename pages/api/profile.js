@@ -2,13 +2,20 @@
 
 import { createClient } from '@supabase/supabase-js'
 
+// Client für normale Benutzer-Requests (RLS)
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 )
 
+// Admin-Client mit Service Role Key (um Profile zu erstellen, unabhängig von RLS)
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+)
+
 async function getUserIdFromRequest(req) {
-  // 1. Session aus Cookies
+  // 1. Versuche Session aus Cookies
   const {
     data: { session },
   } = await supabase.auth.getSession()
@@ -22,6 +29,7 @@ async function getUserIdFromRequest(req) {
   const token = authHeader.replace('Bearer ', '').trim()
   if (!token) return null
 
+  // Mit dem Token den User abrufen (ohne Seiteneffekte)
   const {
     data: { user },
     error: userErr,
@@ -41,7 +49,7 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'GET') {
-    // Profil laden (wenn nicht vorhanden: null, kein Fehler)
+    // Profil laden (mit normalem Client, RLS greift)
     let { data: profile, error } = await supabase
       .from('profiles')
       .select('full_name, prompt_limit, prompts_used, user_id')
@@ -54,14 +62,14 @@ export default async function handler(req, res) {
     }
 
     if (!profile) {
-      // Profil anlegen
-      const { data: inserted, error: insertErr } = await supabase
+      // Profil anlegen mit Admin-Client (umgeht RLS)
+      const { data: inserted, error: insertErr } = await supabaseAdmin
         .from('profiles')
         .insert({ user_id: userId })
         .select()
         .maybeSingle()
       if (insertErr) {
-        console.error('Profil anlegen fehlgeschlagen:', insertErr)
+        console.error('Profil anlegen fehlgeschlagen (Admin):', insertErr)
         return res.status(500).json({ error: insertErr.message })
       }
       profile = inserted
@@ -72,12 +80,14 @@ export default async function handler(req, res) {
 
   if (req.method === 'PATCH') {
     const { full_name } = req.body
-    const updates = {}
-    if (full_name !== undefined) updates.full_name = full_name
+    if (full_name === undefined) {
+      return res.status(400).json({ error: 'Kein full_name übergeben' })
+    }
 
+    // Update: normal über RLS-geschützten Client, damit nur eigener User ändern kann
     const { data, error: updateErr } = await supabase
       .from('profiles')
-      .update(updates)
+      .update({ full_name })
       .eq('user_id', userId)
       .maybeSingle()
 
@@ -85,6 +95,7 @@ export default async function handler(req, res) {
       console.error('Fehler beim Aktualisieren des Profils:', updateErr)
       return res.status(500).json({ error: updateErr.message })
     }
+
     return res.status(200).json({ profile: data })
   }
 
