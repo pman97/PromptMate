@@ -19,7 +19,7 @@ export default function Dashboard() {
   const [loadingProfile, setLoadingProfile] = useState(true)
   const [profileError, setProfileError] = useState(null)
 
-  // 1. Session / Magic Link verarbeiten und User setzen
+  // 1. Session / Magic Link verarbeiten und User/Token setzen
   useEffect(() => {
     const init = async () => {
       if (typeof window === 'undefined') return
@@ -66,6 +66,7 @@ export default function Dashboard() {
           },
         })
         const json = await res.json()
+        console.log('DEBUG: GET /api/profile response:', json)
         if (json.profile) {
           setProfile(json.profile)
           setNameInput(json.profile.full_name || '')
@@ -97,6 +98,7 @@ export default function Dashboard() {
         },
       })
       const json = await res.json()
+      console.log('DEBUG: refreshProfile response:', json)
       if (json.profile) {
         setProfile(json.profile)
       } else if (json.error) {
@@ -122,9 +124,10 @@ export default function Dashboard() {
         body: JSON.stringify({ full_name: nameInput }),
       })
       const json = await res.json()
+      console.log('DEBUG: PATCH /api/profile response:', json)
       if (json.profile) {
-        setProfile(json.profile)
-        setNameInput(json.profile.full_name || '')
+        // sofort neu laden, um sicherzugehen
+        await refreshProfile()
         setEditingName(false)
       } else {
         console.error('Fehler beim Speichern des Namens', json)
