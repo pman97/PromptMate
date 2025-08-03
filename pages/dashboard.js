@@ -5,6 +5,7 @@ import { useRouter } from 'next/router'
 import { supabase } from '../lib/supabase'
 import { PromptList } from '../components/PromptList'
 import { PromptUsageWidget } from '../components/PromptUsageWidget'
+import { LimitUpgradeModal } from '../components/LimitUpgradeModal'
 
 export default function Dashboard() {
   const router = useRouter()
@@ -18,6 +19,7 @@ export default function Dashboard() {
   const [saving, setSaving] = useState(false)
   const [loadingProfile, setLoadingProfile] = useState(true)
   const [profileError, setProfileError] = useState(null)
+  const [showUpgrade, setShowUpgrade] = useState(false)
 
   // 1. Session / Magic Link verarbeiten und User/Token setzen
   useEffect(() => {
@@ -112,49 +114,53 @@ export default function Dashboard() {
   }
 
   const saveName = async () => {
-  if (!nameInput || !accessToken) return
-  setSaving(true)
-  try {
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 10000) // 10s timeout
+    if (!nameInput || !accessToken) return
+    setSaving(true)
+    try {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 10000) // 10s timeout
 
-    const res = await fetch('/api/profile', {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({ full_name: nameInput }),
-      signal: controller.signal,
-    })
+      const res = await fetch('/api/profile', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ full_name: nameInput }),
+        signal: controller.signal,
+      })
 
-    clearTimeout(timeout)
+      clearTimeout(timeout)
 
-    const json = await res.json()
-    console.log('DEBUG: PATCH /api/profile response:', json)
-    if (json.profile) {
-      setProfile(json.profile)
-      setNameInput(json.profile.full_name || '')
-      setEditingName(false)
-    } else {
-      console.error('Fehler beim Speichern des Namens', json)
+      const json = await res.json()
+      console.log('DEBUG: PATCH /api/profile response:', json)
+      if (json.profile) {
+        setProfile(json.profile)
+        setNameInput(json.profile.full_name || '')
+        setEditingName(false)
+      } else {
+        console.error('Fehler beim Speichern des Namens', json)
+      }
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        console.error('SaveName request timed out')
+      } else {
+        console.error('SaveName failed', err)
+      }
+    } finally {
+      setSaving(false)
     }
-  } catch (err) {
-    if (err.name === 'AbortError') {
-      console.error('SaveName request timed out')
-    } else {
-      console.error('SaveName failed', err)
-    }
-  } finally {
-    setSaving(false)
   }
-}
-
 
   const submitPrompt = async (e) => {
     e.preventDefault()
     if (!prompt || !user) return
-    if (profile && profile.prompts_used >= profile.prompt_limit) return
+
+    if (profile && profile.prompts_used >= profile.prompt_limit) {
+      setShowUpgrade(true)
+      return
+    }
+
     setSaving(true)
     try {
       const res = await fetch('/api/generate', {
@@ -278,6 +284,14 @@ export default function Dashboard() {
 
       {/* Gespeicherte Prompts */}
       <PromptList />
+
+      <LimitUpgradeModal
+        open={showUpgrade}
+        onClose={() => setShowUpgrade(false)}
+        onUpgrade={() => {
+          alert('Upgrade-Flow: Hier würdest du z.B. auf Bezahlseite leiten.')
+        }}
+      />
     </div>
   )
 }
