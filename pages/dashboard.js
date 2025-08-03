@@ -5,6 +5,7 @@ import { useRouter } from 'next/router'
 import { supabase } from '../lib/supabase'
 import { PromptList } from '../components/PromptList'
 import { useProfile } from '../hooks/useProfile'
+import { PromptUsageWidget } from '../components/PromptUsageWidget'
 
 export default function Dashboard() {
   const router = useRouter()
@@ -23,7 +24,7 @@ export default function Dashboard() {
     const init = async () => {
       if (typeof window === 'undefined') return
 
-      // 1. Magic Link aus Hash verarbeiten
+      // Magic Link aus Hash verarbeiten
       if (window.location.hash.includes('access_token')) {
         const { data, error } = await supabase.auth.getSessionFromUrl({
           storeSession: true,
@@ -31,12 +32,11 @@ export default function Dashboard() {
         if (error) {
           console.error('Fehler beim Verarbeiten des Magic Link:', error)
         } else {
-          // Hash bereinigen
           window.history.replaceState(null, '', window.location.pathname)
         }
       }
 
-      // 2. Session abrufen
+      // Session holen
       const {
         data: { session },
         error: sessionError,
@@ -51,7 +51,6 @@ export default function Dashboard() {
       setUser({ id: session.user.id, email: session.user.email })
       setAccessToken(session.access_token)
 
-      // Profil-Name vorausfüllen, falls vorhanden
       if (profile) {
         setNameInput(profile.full_name || '')
       }
@@ -63,6 +62,19 @@ export default function Dashboard() {
   const handleLogout = async () => {
     await supabase.auth.signOut()
     router.replace('/login')
+  }
+
+  // Profil neu laden (für Widget / Refresh)
+  const refreshProfile = async () => {
+    try {
+      const res = await fetch('/api/profile')
+      const json = await res.json()
+      if (json.profile) {
+        setProfile(json.profile)
+      }
+    } catch (e) {
+      console.error('Profil refresh failed', e)
+    }
   }
 
   const saveName = async () => {
@@ -94,6 +106,7 @@ export default function Dashboard() {
   const submitPrompt = async (e) => {
     e.preventDefault()
     if (!prompt || !user) return
+    if (profile && profile.prompts_used >= profile.prompt_limit) return
     setSaving(true)
     try {
       const res = await fetch('/api/generate', {
@@ -104,6 +117,8 @@ export default function Dashboard() {
       const data = await res.json()
       setResponse(data.response || 'Keine Antwort erhalten')
       setPrompt('')
+      // nach erfolgreichem Prompt das Profil refreshen, damit usage up-to-date ist
+      await refreshProfile()
     } catch (err) {
       console.error('Prompt senden fehlgeschlagen', err)
     } finally {
@@ -114,10 +129,12 @@ export default function Dashboard() {
   if (!user)
     return <p className="p-4 text-center">Lade Benutzer-Session... Bitte kurz warten.</p>
 
+  const limitReached = profile && profile.prompts_used >= profile.prompt_limit
+
   return (
     <div className="max-w-2xl mx-auto p-4">
       {/* Kopfzeile / Profil */}
-      <div className="flex justify-between items-center mb-6">
+      <div className="flex justify-between items-center mb-4">
         <div>
           <h1 className="text-2xl font-bold">
             Hallo, {profile?.full_name || user.email}
@@ -175,9 +192,17 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* Prompt Usage Widget */}
+      <PromptUsageWidget profile={profile} refreshProfile={refreshProfile} />
+
       {/* Prompt-Formular */}
       <div className="mb-8">
         <h2 className="text-lg font-semibold mb-2">Neuen Prompt eingeben</h2>
+        {limitReached && (
+          <p className="text-red-600 mb-2">
+            Du hast dein Limit erreicht. Du kannst keine weiteren Prompts senden.
+          </p>
+        )}
         <form onSubmit={submitPrompt} className="space-y-2">
           <textarea
             value={prompt}
@@ -186,10 +211,11 @@ export default function Dashboard() {
             className="w-full border rounded p-2"
             rows={3}
             required
+            disabled={limitReached || saving}
           />
           <button
             type="submit"
-            disabled={saving}
+            disabled={saving || limitReached}
             className="px-4 py-2 bg-blue-600 text-white rounded"
           >
             {saving ? 'Sende...' : 'Prompt abschicken'}
