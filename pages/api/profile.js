@@ -8,7 +8,7 @@ const supabase = createClient(
 )
 
 async function getUserIdFromRequest(req) {
-  // 1. Session aus Cookies (falls vorhanden)
+  // 1. Session aus Cookies
   const {
     data: { session },
   } = await supabase.auth.getSession()
@@ -41,29 +41,32 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'GET') {
+    // Profil laden (wenn nicht vorhanden: null, kein Fehler)
     let { data: profile, error } = await supabase
       .from('profiles')
       .select('full_name, prompt_limit, prompts_used, user_id')
       .eq('user_id', userId)
-      .single()
+      .maybeSingle()
 
-    if ((!profile && error) || !profile) {
+    if (error) {
+      console.error('Fehler beim Laden des Profils:', error)
+      return res.status(500).json({ error: error.message })
+    }
+
+    if (!profile) {
+      // Profil anlegen
       const { data: inserted, error: insertErr } = await supabase
         .from('profiles')
         .insert({ user_id: userId })
         .select()
-        .single()
+        .maybeSingle()
       if (insertErr) {
         console.error('Profil anlegen fehlgeschlagen:', insertErr)
         return res.status(500).json({ error: insertErr.message })
       }
       profile = inserted
-      error = null
     }
 
-    if (error) {
-      return res.status(500).json({ error: error.message })
-    }
     return res.status(200).json({ profile })
   }
 
@@ -72,14 +75,15 @@ export default async function handler(req, res) {
     const updates = {}
     if (full_name !== undefined) updates.full_name = full_name
 
-    const { data, error } = await supabase
+    const { data, error: updateErr } = await supabase
       .from('profiles')
       .update(updates)
       .eq('user_id', userId)
-      .single()
+      .maybeSingle()
 
-    if (error) {
-      return res.status(500).json({ error: error.message })
+    if (updateErr) {
+      console.error('Fehler beim Aktualisieren des Profils:', updateErr)
+      return res.status(500).json({ error: updateErr.message })
     }
     return res.status(200).json({ profile: data })
   }
