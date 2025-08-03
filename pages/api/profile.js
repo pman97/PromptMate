@@ -1,65 +1,48 @@
-// pages/api/profile.js
-
-import { supabase } from '../../lib/supabase'
-import { getSupabaseAdmin } from '../../lib/supabase'
-
-const supabaseAdmin = getSupabaseAdmin()
-
-
-async function getUserId(req) {
-  // Bearer Token
-  const authHeader = req.headers.authorization || ''
-  const token = authHeader.replace('Bearer ', '').trim()
-  if (token) {
-    const {
-      data: { user },
-      error,
-    } = await supabaseAdmin.auth.getUser(token)
-    if (!error && user) return user.id
-  }
-
-  // Session aus Cookie
-  const {
-    data: { session },
-    error: sessionError,
-  } = await supabaseAdmin.auth.getSession()
-  if (!sessionError && session?.user) {
-    return session.user.id
-  }
-
-  return null
-}
+import { supabaseAdmin } from '../../lib/supabase'
 
 export default async function handler(req, res) {
-  const userId = await getUserId(req)
-  if (!userId) {
+  // Auth: JWT aus Authorization Header auslesen
+  const token = req.headers.authorization?.split(' ')[1]
+  if (!token) {
     return res.status(401).json({ error: 'Nicht eingeloggt' })
   }
 
-  if (req.method === 'GET' || req.method === 'PATCH') {
-    let full_name = undefined
-    if (req.method === 'PATCH') {
-      const { full_name: fn } = req.body || {}
-      full_name = fn
-    }
+  // Nutzer-Info aus JWT holen
+  const { data: { user }, error: userError } = await supabaseAdmin.auth.getUser(token)
+  if (userError || !user) {
+    return res.status(401).json({ error: 'Nicht eingeloggt' })
+  }
+  const userId = user.id
 
-    const row = { user_id: userId }
-    if (full_name !== undefined) row.full_name = full_name
-
+  if (req.method === 'GET') {
+    // Profil holen
     const { data: profile, error } = await supabaseAdmin
       .from('profiles')
-      .upsert(row, { onConflict: 'user_id', returning: 'representation' })
-      .select('full_name, prompt_limit, prompts_used, user_id')
-      .maybeSingle()
-
+      .select('user_id, full_name, prompt_limit, prompts_used')
+      .eq('user_id', userId)
+      .single()
     if (error) {
-      console.error('Profil upsert failed:', error)
-      return res.status(500).json({ error: error.message })
+      return res.status(200).json({ profile: null })
     }
-
     return res.status(200).json({ profile })
   }
 
-  res.setHeader('Allow', 'GET, PATCH')
-  res.status(405).end()
+  if (req.method === 'PATCH') {
+    const { full_name } = req.body
+    if (!full_name) {
+      return res.status(400).json({ error: 'Name fehlt' })
+    }
+    // Upsert: Profil anlegen/aktualisieren
+    const { data: profile, error } = await supabaseAdmin
+      .from('profiles')
+      .upsert({ user_id: userId, full_name })
+      .select('user_id, full_name, prompt_limit, prompts_used')
+      .single()
+    if (error) {
+      return res.status(500).json({ error: 'Profil konnte nicht gespeichert werden.' })
+    }
+    return res.status(200).json({ profile })
+  }
+
+  res.status(405).json({ error: 'Nicht erlaubt' })
 }
